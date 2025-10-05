@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+  pipeline:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: lunar-pipeline:cuda118
+    working_dir: /app
+    env_file: .env
+    environment:
+      TZ: ${TZ:-Asia/Kolkata}
+      AWS_PROFILE: ${AWS_PROFILE:-default}
+      AWS_REGION: ${AWS_DEFAULT_REGION:-ap-south-1}
+      PSFS_MODEL_PATH: ${PSFS_MODEL_PATH:-/app/models/psfs_model.pth}
+    volumes:
+      - ./:/app
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./models:/app/models
+      - ${USERPROFILE}/.aws:/root/.aws:ro   # mount host AWS creds (Windows)
+    gpus: all                       # enable NVIDIA GPUs
+    command: ["python", "main.py"]
+    restart: unless-stopped
+    ports:
+      - "8000:8000"  # For model serving API

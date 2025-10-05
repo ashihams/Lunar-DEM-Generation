@@ -1,0 +1,11 @@
+{
+  "batch_size": 8,
+  "max_workers": null,
+  "super_resolution": {
+    "scale_factor": 2,
+    "model_path": null
+  },
+  "output_format": "png",
+  "quality_metrics": true,
+  "gpu_memory_limit": 0.8
+}

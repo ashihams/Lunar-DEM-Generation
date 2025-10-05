@@ -1,0 +1,92 @@
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - airflow_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 10s
+      timeout: 5s
+    restart: unless-stopped
+  airflow-init:
+    image: apache/airflow:2.9.2
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+      - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW_FERNET_KEY:-E7e1s1l5b1mV8yY2p7G5gYtZk2c8yOa3CwYH7l7u9lQ=}
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      - _AIRFLOW_WWW_USER_USERNAME=dem_admin
+      - _AIRFLOW_WWW_USER_PASSWORD=securepassword123
+      # AIRFLOW CREDENTIALS
+# The username and password for the default Airflow Admin user
+
+    user: "0:0"
+    entrypoint: /bin/bash
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: -c "airflow db migrate && airflow users create --username \"${_AIRFLOW_WWW_USER_USERNAME}\" --password \"${_AIRFLOW_WWW_USER_PASSWORD}\" --firstname admin --lastname admin --role Admin --email admin@example.com || true"
+    volumes:
+      - ./dags:/opt/airflow/dags
+
+  airflow-webserver:
+    image: apache/airflow:2.9.2
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+      - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW_FERNET_KEY:-E7e1s1l5b1mV8yY2p7G5gYtZk2c8yOa3CwYH7l7u9lQ=}
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      - PYTHONPATH=/opt/airflow/app
+      - CRATER_NAME=${CRATER_NAME:-Tycho}
+      - RUN_ID=${RUN_ID:-manual}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./:/opt/airflow/app
+      - ${USERPROFILE}/.aws:/root/.aws:ro
+    command: webserver
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  airflow-scheduler:
+    image: apache/airflow:2.9.2
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+      - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW_FERNET_KEY:-E7e1s1l5b1mV8yY2p7G5gYtZk2c8yOa3CwYH7l7u9lQ=}
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      - PYTHONPATH=/opt/airflow/app
+      - CRATER_NAME=${CRATER_NAME:-Tycho}
+      - RUN_ID=${RUN_ID:-manual}
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./:/opt/airflow/app
+      - ${USERPROFILE}/.aws:/root/.aws:ro
+    command: scheduler
+    restart: unless-stopped
+
+volumes:
+  airflow_pgdata:
+
+
