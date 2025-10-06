@@ -209,12 +209,13 @@ def extract_photoclinometry_inputs(tif_path, xml_path):
 
 # --- 3. THE PHOTOCLINOMETRY (SHAPE-FROM-SHADING) MODEL ---
 
-def run_photoclinometry(I, i_map, e_map, model_type="hapke", **kwargs):
+def run_photoclinometry(I, i_map, e_map, model_type="lommel_seeliger", **kwargs):
     """
     Implements advanced photoclinometry models to derive surface gradients (p, q).
     
     Supported models:
     - "lambertian": Simple Lambertian model (I = ρ * cos(i))
+    - "lommel_seeliger": Lommel-Seeliger model (better for Moon-like surfaces)
     - "hapke": Advanced Hapke bidirectional reflectance model (most accurate for lunar surfaces)
     
     Args:
@@ -228,11 +229,13 @@ def run_photoclinometry(I, i_map, e_map, model_type="hapke", **kwargs):
     
     if model_type.lower() == "lambertian":
         return _lambertian_photoclinometry(I, i_map, e_map, **kwargs)
+    elif model_type.lower() == "lommel_seeliger":
+        return _lommel_seeliger_photoclinometry(I, i_map, e_map, **kwargs)
     elif model_type.lower() == "hapke":
         return _hapke_photoclinometry(I, i_map, e_map, **kwargs)
     else:
-        print(f"Unknown model type: {model_type}, falling back to Hapke (recommended for lunar surfaces)")
-        return _hapke_photoclinometry(I, i_map, e_map, **kwargs)
+        print(f"Unknown model type: {model_type}, falling back to Lommel-Seeliger (recommended for lunar surfaces)")
+        return _lommel_seeliger_photoclinometry(I, i_map, e_map, **kwargs)
 
 
 def _hapke_photoclinometry(I, i_map, e_map, w=0.12, h=0.1, B0=0.1, h0=0.05, theta=0.1):
@@ -374,8 +377,90 @@ def _lambertian_photoclinometry(I, i_map, e_map, albedo=0.1):
     return p, q
 
 
+def _lommel_seeliger_photoclinometry(I, i_map, e_map, albedo=0.1):
+    """
+    Implements a simplified Lommel-Seeliger Reflectance Model for Moon-like surfaces.
+    This model better approximates the light scattering on regolith.
+    """
+    print("   Using Lommel-Seeliger Reflectance Model...")
+    
+    # 1. Normalize Intensity (I)
+    I_norm = (I - np.min(I)) / (np.max(I) - np.min(I))
+    
+    # 2. Calculate the Reflectance Factor (R) based on angles
+    # R_model = mu / (mu + mu0) where mu=cos(e) and mu0=cos(i)
+    cos_i = np.cos(i_map) # mu0
+    cos_e = np.cos(e_map) # mu
+
+    # Avoid division by zero in deep shadow areas
+    denominator = np.clip(cos_e + cos_i, 1e-6, None) 
+    
+    # Solve for R_model (normalized by albedo)
+    R_model = cos_e / denominator
+    
+    # 3. Derive Gradients (p, q)
+    # The actual calculation is complex, but the simplification is to derive the local 
+    # incidence angle (i_local) from the measured intensity (I_norm) and the model (R_model).
+    
+    # Simplified approach: Solve cos(i_local) = I_norm / R_model
+    # This gives us the theoretical local incidence angle.
+    cos_i_local = np.clip(I_norm / R_model, 0.0, 1.0)
+    
+    # Derive the local angle and the slope factor
+    i_local = np.arccos(cos_i_local) 
+    slope_factor = np.tan(i_local) # Slope is related to tan(i)
+    
+    # Assuming the sun azimuth is aligned with the X-axis for simplicity (most common case)
+    # The true azimuth would require more complex metadata extraction.
+    p = slope_factor * np.cos(i_local) 
+    q = slope_factor * np.sin(i_local) * 0.1 # Small component in the Y direction
+
+    print("   Lommel-Seeliger gradient derivation complete.")
+    return p, q
+
+
 
 # --- 3.5. SHADOW HANDLING (Advanced Shadow Processing) ---
+
+def handle_shadows_intensity(intensity_array):
+    """Identifies zero-intensity pixels and replaces them using interpolation."""
+    print("Shadow Handler: Identifying and interpolating shadowed areas...")
+    
+    # 1. Create a mask: True where intensity is zero (shadow)
+    shadow_mask = (intensity_array <= np.min(intensity_array) + 1e-4)
+    
+    # 2. Prepare for interpolation
+    # Create an array where shadow pixels are NaN (Not a Number)
+    data_to_interp = intensity_array.copy()
+    data_to_interp[shadow_mask] = np.nan
+    
+    # 3. Use SciPy's interpolation (nearest neighbor or fill_value)
+    # Finding non-shadowed coordinates
+    coords = np.argwhere(~shadow_mask)
+    values = data_to_interp[~shadow_mask]
+    
+    # Coordinates of the shadow pixels (where we need to fill data)
+    shadow_coords = np.argwhere(shadow_mask)
+
+    if shadow_coords.size > 0:
+        from scipy.interpolate import griddata
+        
+        # Use griddata to fill the shadow holes based on nearby known points
+        interpolated_values = griddata(
+            coords, 
+            values, 
+            shadow_coords, 
+            method='nearest' # Simple and fast interpolation method
+        )
+        
+        # Replace the shadow pixels with the interpolated values
+        intensity_array[shadow_mask] = interpolated_values
+        print(f"Shadow Handler: Interpolated {shadow_coords.shape[0]} shadowed pixels.")
+    else:
+        print("Shadow Handler: No deep shadows found requiring interpolation.")
+        
+    return intensity_array
+
 
 def handle_shadows(I, p, q, shadow_threshold=0.1, smoothing_sigma=1.0):
     """
@@ -921,9 +1006,12 @@ def run_photoclinometry_pipeline():
         # Stop if data extraction failed
         if intensity is None:
             return 
+        
+        # 2.5. Shadow Handling - Handle deep shadows before modeling
+        intensity_shadow_corrected = handle_shadows_intensity(intensity)
             
-        # 3. Modeling (Gradient Derivation) - Using Hapke model for lunar accuracy
-        p, q = run_photoclinometry(intensity, incidence, emission, model_type="hapke")
+        # 3. Modeling (Gradient Derivation) - Using Lommel-Seeliger model for lunar accuracy
+        p, q = run_photoclinometry(intensity_shadow_corrected, incidence, emission, model_type="lommel_seeliger")
         
         # 3.5. Shadow Handling (Advanced Shadow Processing)
         p, q = handle_shadows(intensity, p, q)
@@ -932,7 +1020,7 @@ def run_photoclinometry_pipeline():
         final_dem = integrate_slopes(p, q)
         
         # 4.5. Validation (DEM Quality Assessment)
-        quality_score = validate_dem_quality(final_dem, model_type="hapke")
+        quality_score = validate_dem_quality(final_dem, model_type="lommel_seeliger")
         
         # 5. Export Result (Final Output)
         export_dem(final_dem, TIF_PATH, OUTPUT_FILENAME_BASE)

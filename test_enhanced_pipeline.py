@@ -48,6 +48,7 @@ def test_all_models():
     # Test models
     models = [
         ("lambertian", "Basic Lambertian Model"),
+        ("lommel_seeliger", "Lommel-Seeliger Model (Recommended for Lunar)"),
         ("hapke", "Advanced Hapke Model")
     ]
     
