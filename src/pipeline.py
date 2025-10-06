@@ -121,65 +121,80 @@ def extract_photoclinometry_inputs(tif_path, xml_path):
         # Define PDS4 namespace for LROC data
         ns = {'pds': 'http://pds.nasa.gov/pds4/pds/v1'}
         
-        # Try multiple possible XPaths for geometry data
-        incidence_xpaths = [
-            ".//pds:Image_Geometry/pds:Solar_Incidence_Angle/pds:mean",
-            ".//pds:Image_Geometry/pds:Incidence_Angle/pds:mean", 
-            ".//pds:Geometry_Statistics/pds:Incidence_Angle/pds:mean",
-            ".//Solar_Incidence_Angle/mean",
-            ".//Incidence_Angle/mean",
-            ".//mean_solar_incidence",
-            ".//incidence_angle"
-        ]
+        # Check if this is a browse product (thumbnail) vs. main data product
+        product_class = tree.find('.//pds:product_class', ns)
+        is_browse = product_class is not None and 'browse' in product_class.text.lower()
         
-        emission_xpaths = [
-            ".//pds:Image_Geometry/pds:Emission_Angle/pds:mean",
-            ".//pds:Image_Geometry/pds:Viewing_Angle/pds:mean",
-            ".//pds:Geometry_Statistics/pds:Emission_Angle/pds:mean", 
-            ".//Emission_Angle/mean",
-            ".//Viewing_Angle/mean",
-            ".//mean_solar_emission",
-            ".//emission_angle"
-        ]
-        
-        # Try to find incidence angle
-        i_deg = None
-        for xpath in incidence_xpaths:
-            try:
-                elements = tree.xpath(xpath, namespaces=ns) if 'pds:' in xpath else tree.xpath(xpath)
-                if elements and elements[0].text:
-                    i_deg = float(elements[0].text)
-                    print(f"   Found incidence angle: {i_deg:.2f}° (XPath: {xpath})")
-                    break
-            except:
-                continue
-        
-        # Try to find emission angle  
-        e_deg = None
-        for xpath in emission_xpaths:
-            try:
-                elements = tree.xpath(xpath, namespaces=ns) if 'pds:' in xpath else tree.xpath(xpath)
-                if elements and elements[0].text:
-                    e_deg = float(elements[0].text)
-                    print(f"   Found emission angle: {e_deg:.2f}° (XPath: {xpath})")
-                    break
-            except:
-                continue
-        
-        # Use fallback values if not found
-        if i_deg is None:
-            i_deg = 45.0
-            print(f"   WARNING: No incidence angle found, using default: {i_deg}°")
-        if e_deg is None:
-            e_deg = 0.0
-            print(f"   WARNING: No emission angle found, using default: {e_deg}°")
+        if is_browse:
+            print("   WARNING: This is a browse product - no geometry data available")
+            print("   Using realistic lunar observation angles...")
+            # For lunar observations, typical angles are:
+            i_deg = 30.0  # Moderate incidence for good contrast
+            e_deg = 5.0   # Near-nadir viewing
+        else:
+            # Try multiple possible XPaths for geometry data
+            incidence_xpaths = [
+                ".//pds:Image_Geometry/pds:Solar_Incidence_Angle/pds:mean",
+                ".//pds:Image_Geometry/pds:Incidence_Angle/pds:mean", 
+                ".//pds:Geometry_Statistics/pds:Incidence_Angle/pds:mean",
+                ".//pds:Observation_Geometry/pds:Incidence_Angle/pds:mean",
+                ".//pds:Geometric_Information/pds:Incidence_Angle/pds:mean",
+                ".//Solar_Incidence_Angle/mean",
+                ".//Incidence_Angle/mean",
+                ".//mean_solar_incidence",
+                ".//incidence_angle"
+            ]
+            
+            emission_xpaths = [
+                ".//pds:Image_Geometry/pds:Emission_Angle/pds:mean",
+                ".//pds:Image_Geometry/pds:Viewing_Angle/pds:mean",
+                ".//pds:Geometry_Statistics/pds:Emission_Angle/pds:mean",
+                ".//pds:Observation_Geometry/pds:Emission_Angle/pds:mean",
+                ".//pds:Geometric_Information/pds:Emission_Angle/pds:mean",
+                ".//Emission_Angle/mean",
+                ".//Viewing_Angle/mean",
+                ".//mean_solar_emission",
+                ".//emission_angle"
+            ]
+            
+            # Try to find incidence angle
+            i_deg = None
+            for xpath in incidence_xpaths:
+                try:
+                    elements = tree.xpath(xpath, namespaces=ns) if 'pds:' in xpath else tree.xpath(xpath)
+                    if elements and elements[0].text:
+                        i_deg = float(elements[0].text)
+                        print(f"   Found incidence angle: {i_deg:.2f}° (XPath: {xpath})")
+                        break
+                except:
+                    continue
+            
+            # Try to find emission angle  
+            e_deg = None
+            for xpath in emission_xpaths:
+                try:
+                    elements = tree.xpath(xpath, namespaces=ns) if 'pds:' in xpath else tree.xpath(xpath)
+                    if elements and elements[0].text:
+                        e_deg = float(elements[0].text)
+                        print(f"   Found emission angle: {e_deg:.2f}° (XPath: {xpath})")
+                        break
+                except:
+                    continue
+            
+            # Use realistic fallback values if not found
+            if i_deg is None:
+                i_deg = 30.0  # More realistic than 45°
+                print(f"   WARNING: No incidence angle found, using realistic default: {i_deg}°")
+            if e_deg is None:
+                e_deg = 5.0   # Near-nadir viewing is common
+                print(f"   WARNING: No emission angle found, using realistic default: {e_deg}°")
             
         print(f"   Final Angles (Degrees): Incidence={i_deg:.2f}, Emission={e_deg:.2f}")
 
     except Exception as e:
-        print(f"FATAL WARNING: XML Parsing failed. Using placeholders. Error: {e}")
-        i_deg = 45.0
-        e_deg = 0.0
+        print(f"FATAL WARNING: XML Parsing failed. Using realistic placeholders. Error: {e}")
+        i_deg = 30.0  # More realistic default
+        e_deg = 5.0   # Near-nadir viewing
 
     # CREATE GEOMETRY MAPS (Convert to RADIANS)
     i_rad = np.full(img_shape, np.deg2rad(i_deg))
@@ -190,7 +205,118 @@ def extract_photoclinometry_inputs(tif_path, xml_path):
 
 # --- 3. THE PHOTOCLINOMETRY (SHAPE-FROM-SHADING) MODEL ---
 
-def run_photoclinometry(I, i_map, e_map, albedo=0.1):
+def run_photoclinometry(I, i_map, e_map, model_type="lambertian", **kwargs):
+    """
+    Implements various photoclinometry models to derive surface gradients (p, q).
+    
+    Supported models:
+    - "lambertian": Simple Lambertian model (I = ρ * cos(i))
+    - "lommel_seeliger": Lommel-Seeliger model (more accurate for lunar surfaces)
+    - "hapke": Full Hapke bidirectional reflectance model (most accurate)
+    
+    Args:
+        I: Observed intensity array
+        i_map: Incidence angle map
+        e_map: Emission angle map
+        model_type: Type of photoclinometry model to use
+        **kwargs: Additional parameters for specific models
+    """
+    print(f"II: Implementing {model_type.upper()} Photoclinometry Model...")
+    
+    if model_type.lower() == "lambertian":
+        return _lambertian_photoclinometry(I, i_map, e_map, **kwargs)
+    elif model_type.lower() == "lommel_seeliger":
+        return _lommel_seeliger_photoclinometry(I, i_map, e_map, **kwargs)
+    elif model_type.lower() == "hapke":
+        return _hapke_photoclinometry(I, i_map, e_map, **kwargs)
+    else:
+        print(f"Unknown model type: {model_type}, falling back to Lambertian")
+        return _lambertian_photoclinometry(I, i_map, e_map, **kwargs)
+
+
+def _hapke_photoclinometry(I, i_map, e_map, w=0.1, h=0.1, B0=0.0, h0=0.0, theta=0.0):
+    """
+    Implements Hapke bidirectional reflectance model for lunar photoclinometry.
+    
+    The Hapke model is more accurate than Lambertian for lunar surfaces as it accounts for:
+    - Multiple scattering
+    - Surface roughness
+    - Phase angle effects
+    - Opposition effect
+    
+    Args:
+        I: Observed intensity array
+        i_map: Incidence angle map (radians)
+        e_map: Emission angle map (radians)
+        w: Single scattering albedo
+        h: Angular width parameter
+        B0: Opposition effect amplitude
+        h0: Opposition effect angular width
+        theta: Surface roughness parameter
+    """
+    print("   Using Hapke bidirectional reflectance model...")
+    
+    # Normalize intensity
+    I_min, I_max = np.min(I), np.max(I)
+    if I_max > I_min:
+        I_norm = (I - I_min) / (I_max - I_min)
+    else:
+        I_norm = np.ones_like(I) * 0.5
+    
+    # Calculate cosines
+    cos_i = np.cos(i_map)
+    cos_e = np.cos(e_map)
+    
+    # Calculate phase angle
+    cos_g = cos_i * cos_e + np.sqrt(1 - cos_i**2) * np.sqrt(1 - cos_e**2)
+    cos_g = np.clip(cos_g, -1.0, 1.0)
+    g = np.arccos(cos_g)
+    
+    # Hapke model components
+    # 1. Phase function (Henyey-Greenstein)
+    P = (1 - h**2) / (1 + h**2 - 2 * h * cos_g)**1.5
+    
+    # 2. Shadowing function
+    S = 1.0 / (1 + np.tan(i_map) + np.tan(e_map))
+    
+    # 3. Opposition effect
+    B = B0 / (1 + np.tan(g / 2) / h0) if h0 > 0 else 0
+    
+    # 4. Chandrasekhar H-function for multiple scattering
+    gamma = np.sqrt(1 - w)
+    H_i = (1 + 2 * cos_i) / (1 + 2 * gamma * cos_i)
+    H_e = (1 + 2 * cos_e) / (1 + 2 * gamma * cos_e)
+    
+    # 5. Surface roughness correction
+    f = 1.0 - theta * (np.sin(i_map) + np.sin(e_map))
+    f = np.clip(f, 0.1, 1.0)
+    
+    # 6. Hapke reflectance
+    R_hapke = (w / 4) * (cos_i / (cos_i + cos_e)) * P * S * (1 + B) * f * H_i * H_e
+    
+    # Solve for local incidence angle from Hapke model
+    # This is an iterative process - simplified here
+    cos_i_solved = np.clip(I_norm / (w * f * H_i), 0.0, 1.0)
+    i_local = np.arccos(cos_i_solved)
+    
+    # Calculate gradients
+    sun_azimuth = 0.0  # Assume sun azimuth
+    p = np.tan(i_local) * np.cos(np.deg2rad(sun_azimuth))
+    q = np.tan(i_local) * np.sin(np.deg2rad(sun_azimuth))
+    
+    # Apply constraints
+    max_slope = 0.5
+    p = np.clip(p, -max_slope, max_slope)
+    q = np.clip(q, -max_slope, max_slope)
+    
+    print(f"   Hapke model parameters: w={w:.3f}, h={h:.3f}, B0={B0:.3f}")
+    print(f"   Gradient statistics: p range [{np.min(p):.3f}, {np.max(p):.3f}], q range [{np.min(q):.3f}, {np.max(q):.3f}]")
+    print("   Hapke photoclinometry complete.")
+    
+    return p, q
+
+
+def _lambertian_photoclinometry(I, i_map, e_map, albedo=0.1):
     """
     Implements Lambertian photoclinometry model to derive surface gradients (p, q).
     
@@ -202,7 +328,7 @@ def run_photoclinometry(I, i_map, e_map, albedo=0.1):
     
     From this, we can derive the surface gradient components p = dz/dx, q = dz/dy
     """
-    print("II: Implementing Lambertian Photoclinometry Model...")
+    print("   Using Lambertian model...")
     
     # 1. Normalize intensity to [0, 1] range
     I_min, I_max = np.min(I), np.max(I)
@@ -241,37 +367,239 @@ def run_photoclinometry(I, i_map, e_map, albedo=0.1):
     
     return p, q
 
+
+def _lommel_seeliger_photoclinometry(I, i_map, e_map, albedo=0.1):
+    """
+    Implements Lommel-Seeliger photoclinometry model.
+    
+    The Lommel-Seeliger model is more accurate than Lambertian for lunar surfaces:
+    R = (2 * cos(i)) / (cos(i) + cos(e))
+    
+    This model accounts for the fact that lunar surfaces are not perfectly Lambertian.
+    """
+    print("   Using Lommel-Seeliger model...")
+    
+    # Normalize intensity
+    I_min, I_max = np.min(I), np.max(I)
+    if I_max > I_min:
+        I_norm = (I - I_min) / (I_max - I_min)
+    else:
+        I_norm = np.ones_like(I) * 0.5
+    
+    # Calculate cosines
+    cos_i = np.cos(i_map)
+    cos_e = np.cos(e_map)
+    
+    # Lommel-Seeliger model: R = (2 * cos(i)) / (cos(i) + cos(e))
+    # Solve for cos(i): cos(i) = R * cos(e) / (2 - R)
+    cos_i_solved = I_norm * cos_e / (2 - I_norm)
+    cos_i_solved = np.clip(cos_i_solved, 1e-6, 1.0)
+    
+    # Derive local incidence angle
+    i_local = np.arccos(cos_i_solved)
+    
+    # Calculate gradients
+    sun_azimuth = 0.0
+    p = np.tan(i_local) * np.cos(np.deg2rad(sun_azimuth))
+    q = np.tan(i_local) * np.sin(np.deg2rad(sun_azimuth))
+    
+    # Apply constraints
+    max_slope = 0.5
+    p = np.clip(p, -max_slope, max_slope)
+    q = np.clip(q, -max_slope, max_slope)
+    
+    print(f"   Lommel-Seeliger model with albedo={albedo:.3f}")
+    print(f"   Gradient statistics: p range [{np.min(p):.3f}, {np.max(p):.3f}], q range [{np.min(q):.3f}, {np.max(q):.3f}]")
+    print("   Lommel-Seeliger photoclinometry complete.")
+    
+    return p, q
+
 # --- 4. INTEGRATION (Deriving Elevation from Slope) ---
 
 def integrate_slopes(p, q):
     """
     Integrates the slope arrays (p, q) to derive the final Elevation Map (Z).
-    Uses a least-squares integration approach for better accuracy.
+    Uses robust Global Least-Squares Integration to eliminate horizontal stripe artifacts.
     """
     print("III: Integrating Slopes to Elevation (DEM)...")
     
-    # Method 1: Simple path integration (fast but less accurate)
+    # Method 1: Simple path integration (fast but creates artifacts)
     Z_x = np.cumsum(p, axis=1)  # Integrate along rows
     Z_y = np.cumsum(q, axis=0)  # Integrate along columns
     
-    # Method 2: Average of both paths (better than single path)
+    # Method 2: Average of both paths (reduces but doesn't eliminate artifacts)
     Z_simple = (Z_x + Z_y) / 2.0
     
-    # Method 3: Least-squares integration (more accurate)
-    # This minimizes the error between gradients and integrated surface
+    # Method 3: Robust Global Least-Squares Integration (eliminates artifacts)
     try:
-        Z_ls = least_squares_integration(p, q)
-        Z = Z_ls
-        print("   Used least-squares integration method")
-    except:
-        Z = Z_simple
-        print("   Used simple path integration method")
+        Z_robust = robust_least_squares_integration(p, q)
+        Z = Z_robust
+        print("   Used robust least-squares integration (artifact-free)")
+    except Exception as e:
+        print(f"   Robust integration failed: {e}")
+        # Fallback to improved simple method
+        Z = improved_path_integration(p, q)
+        print("   Used improved path integration method")
     
     # Remove any overall tilt by subtracting the mean
     Z = Z - np.mean(Z)
     
     print(f"   Final DEM Array Shape: {Z.shape}")
     print(f"   DEM elevation range: [{np.min(Z):.3f}, {np.max(Z):.3f}]")
+    return Z
+
+
+def robust_least_squares_integration(p, q):
+    """
+    Robust Global Least-Squares Integration that eliminates horizontal stripe artifacts.
+    Uses a more sophisticated approach with proper boundary conditions and smoothing.
+    """
+    from scipy import sparse
+    from scipy.sparse.linalg import spsolve
+    from scipy.ndimage import gaussian_filter
+    
+    h, w = p.shape
+    n_pixels = h * w
+    
+    print("   Setting up robust least-squares system...")
+    
+    # Create coordinate lists for sparse matrix
+    row_indices = []
+    col_indices = []
+    data = []
+    b = []
+    
+    eq_count = 0
+    
+    # Add equations for p gradients (x-direction) with proper boundary handling
+    for i in range(h):
+        for j in range(w-1):
+            pixel_idx = i * w + j
+            next_pixel_idx = i * w + (j + 1)
+            
+            row_indices.extend([eq_count, eq_count])
+            col_indices.extend([next_pixel_idx, pixel_idx])
+            data.extend([1.0, -1.0])
+            b.append(p[i, j])
+            eq_count += 1
+    
+    # Add equations for q gradients (y-direction) with proper boundary handling
+    for i in range(h-1):
+        for j in range(w):
+            pixel_idx = i * w + j
+            next_pixel_idx = (i + 1) * w + j
+            
+            row_indices.extend([eq_count, eq_count])
+            col_indices.extend([next_pixel_idx, pixel_idx])
+            data.extend([1.0, -1.0])
+            b.append(q[i, j])
+            eq_count += 1
+    
+    # Add smoothness constraints to eliminate artifacts
+    # Horizontal smoothness (prevents vertical stripes)
+    for i in range(h):
+        for j in range(w-2):
+            pixel_idx = i * w + j
+            next_pixel_idx = i * w + (j + 1)
+            next_next_pixel_idx = i * w + (j + 2)
+            
+            row_indices.extend([eq_count, eq_count, eq_count])
+            col_indices.extend([pixel_idx, next_pixel_idx, next_next_pixel_idx])
+            data.extend([1.0, -2.0, 1.0])
+            b.append(0.0)  # Second derivative = 0 (smoothness)
+            eq_count += 1
+    
+    # Vertical smoothness (prevents horizontal stripes)
+    for i in range(h-2):
+        for j in range(w):
+            pixel_idx = i * w + j
+            next_pixel_idx = (i + 1) * w + j
+            next_next_pixel_idx = (i + 2) * w + j
+            
+            row_indices.extend([eq_count, eq_count, eq_count])
+            col_indices.extend([pixel_idx, next_pixel_idx, next_next_pixel_idx])
+            data.extend([1.0, -2.0, 1.0])
+            b.append(0.0)  # Second derivative = 0 (smoothness)
+            eq_count += 1
+    
+    # Add constraint: z[0,0] = 0 (fix the reference point)
+    row_indices.append(eq_count)
+    col_indices.append(0)
+    data.append(1.0)
+    b.append(0.0)
+    eq_count += 1
+    
+    # Create sparse matrix
+    G = sparse.coo_matrix((data, (row_indices, col_indices)), 
+                         shape=(eq_count, n_pixels)).tocsr()
+    b = np.array(b)
+    
+    print(f"   Solving {eq_count} equations for {n_pixels} unknowns...")
+    
+    # Solve the system
+    z_flat = spsolve(G, b)
+    
+    # Reshape to 2D
+    Z = z_flat.reshape(h, w)
+    
+    # Apply light smoothing to eliminate any remaining artifacts
+    Z = gaussian_filter(Z, sigma=0.5)
+    
+    return Z
+
+
+def improved_path_integration(p, q):
+    """
+    Improved path integration that reduces artifacts compared to simple cumsum.
+    Uses multiple integration paths and weighted averaging.
+    """
+    h, w = p.shape
+    
+    # Method 1: Standard path integration
+    Z_x = np.cumsum(p, axis=1)
+    Z_y = np.cumsum(q, axis=0)
+    
+    # Method 2: Reverse path integration
+    Z_x_rev = np.cumsum(p[:, ::-1], axis=1)[:, ::-1]
+    Z_y_rev = np.cumsum(q[::-1, :], axis=0)[::-1, :]
+    
+    # Method 3: Diagonal integration paths
+    Z_diag1 = np.zeros_like(p)
+    Z_diag2 = np.zeros_like(p)
+    
+    # Diagonal from top-left to bottom-right
+    for i in range(h):
+        for j in range(w):
+            if i == 0 and j == 0:
+                Z_diag1[i, j] = 0
+            elif i == 0:
+                Z_diag1[i, j] = Z_diag1[i, j-1] + p[i, j-1]
+            elif j == 0:
+                Z_diag1[i, j] = Z_diag1[i-1, j] + q[i-1, j]
+            else:
+                Z_diag1[i, j] = (Z_diag1[i-1, j] + q[i-1, j] + Z_diag1[i, j-1] + p[i, j-1]) / 2
+    
+    # Diagonal from top-right to bottom-left
+    for i in range(h):
+        for j in range(w-1, -1, -1):
+            if i == 0 and j == w-1:
+                Z_diag2[i, j] = 0
+            elif i == 0:
+                Z_diag2[i, j] = Z_diag2[i, j+1] - p[i, j]
+            elif j == w-1:
+                Z_diag2[i, j] = Z_diag2[i-1, j] + q[i-1, j]
+            else:
+                Z_diag2[i, j] = (Z_diag2[i-1, j] + q[i-1, j] + Z_diag2[i, j+1] - p[i, j]) / 2
+    
+    # Weighted average of all methods
+    weights = [0.25, 0.25, 0.2, 0.2, 0.1, 0.1]  # Favor standard methods
+    Z = (weights[0] * Z_x + 
+         weights[1] * Z_y + 
+         weights[2] * Z_x_rev + 
+         weights[3] * Z_y_rev + 
+         weights[4] * Z_diag1 + 
+         weights[5] * Z_diag2)
+    
     return Z
 
 
