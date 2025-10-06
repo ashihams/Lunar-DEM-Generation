@@ -118,24 +118,65 @@ def extract_photoclinometry_inputs(tif_path, xml_path):
         print(f"   Parsing XML: {xml_path}")
         tree = ET.parse(xml_path)
         
-        # NOTE: XPaths for PDS LROC XML often look like this:
-        # Search for key LROC geometry tags (Mean Values in Degrees)
-        # We assume the angles are stored directly as text in the XML structure
-        INCIDENCE_XPATH = "//mean_solar_incidence"
-        EMISSION_XPATH = "//mean_solar_emission"
-
-        # Get values. Note: .text is necessary to get the string content
-        incidence_element = tree.xpath(INCIDENCE_XPATH)
-        emission_element = tree.xpath(EMISSION_XPATH)
-
-        # Extract values (using a fallback if the exact tag isn't found)
-        i_deg = float(incidence_element[0].text) if incidence_element else 45.0
-        e_deg = float(emission_element[0].text) if emission_element else 0.0
+        # Define PDS4 namespace for LROC data
+        ns = {'pds': 'http://pds.nasa.gov/pds4/pds/v1'}
         
-        print(f"   Extracted Mean Angles (Degrees): Incidence={i_deg:.2f}, Emission={e_deg:.2f}")
+        # Try multiple possible XPaths for geometry data
+        incidence_xpaths = [
+            ".//pds:Image_Geometry/pds:Solar_Incidence_Angle/pds:mean",
+            ".//pds:Image_Geometry/pds:Incidence_Angle/pds:mean", 
+            ".//pds:Geometry_Statistics/pds:Incidence_Angle/pds:mean",
+            ".//Solar_Incidence_Angle/mean",
+            ".//Incidence_Angle/mean",
+            ".//mean_solar_incidence",
+            ".//incidence_angle"
+        ]
+        
+        emission_xpaths = [
+            ".//pds:Image_Geometry/pds:Emission_Angle/pds:mean",
+            ".//pds:Image_Geometry/pds:Viewing_Angle/pds:mean",
+            ".//pds:Geometry_Statistics/pds:Emission_Angle/pds:mean", 
+            ".//Emission_Angle/mean",
+            ".//Viewing_Angle/mean",
+            ".//mean_solar_emission",
+            ".//emission_angle"
+        ]
+        
+        # Try to find incidence angle
+        i_deg = None
+        for xpath in incidence_xpaths:
+            try:
+                elements = tree.xpath(xpath, namespaces=ns) if 'pds:' in xpath else tree.xpath(xpath)
+                if elements and elements[0].text:
+                    i_deg = float(elements[0].text)
+                    print(f"   Found incidence angle: {i_deg:.2f}° (XPath: {xpath})")
+                    break
+            except:
+                continue
+        
+        # Try to find emission angle  
+        e_deg = None
+        for xpath in emission_xpaths:
+            try:
+                elements = tree.xpath(xpath, namespaces=ns) if 'pds:' in xpath else tree.xpath(xpath)
+                if elements and elements[0].text:
+                    e_deg = float(elements[0].text)
+                    print(f"   Found emission angle: {e_deg:.2f}° (XPath: {xpath})")
+                    break
+            except:
+                continue
+        
+        # Use fallback values if not found
+        if i_deg is None:
+            i_deg = 45.0
+            print(f"   WARNING: No incidence angle found, using default: {i_deg}°")
+        if e_deg is None:
+            e_deg = 0.0
+            print(f"   WARNING: No emission angle found, using default: {e_deg}°")
+            
+        print(f"   Final Angles (Degrees): Incidence={i_deg:.2f}, Emission={e_deg:.2f}")
 
     except Exception as e:
-        # This catch will now only run if the XML is severely malformed or XPaths are wrong.
         print(f"FATAL WARNING: XML Parsing failed. Using placeholders. Error: {e}")
         i_deg = 45.0
         e_deg = 0.0
@@ -149,31 +190,55 @@ def extract_photoclinometry_inputs(tif_path, xml_path):
 
 # --- 3. THE PHOTOCLINOMETRY (SHAPE-FROM-SHADING) MODEL ---
 
-def run_photoclinometry(I, i_map, e_map):
+def run_photoclinometry(I, i_map, e_map, albedo=0.1):
     """
-    Simulates the Photoclinometry model using a simplified gradient derivation.
-    This is where your core scientific model is implemented.
+    Implements Lambertian photoclinometry model to derive surface gradients (p, q).
+    
+    The Lambertian model assumes: I = ρ * cos(i)
+    Where:
+    - I is the observed intensity
+    - ρ is the surface albedo (reflectivity)
+    - cos(i) is the cosine of the local incidence angle
+    
+    From this, we can derive the surface gradient components p = dz/dx, q = dz/dy
     """
-    print("II: Executing Photoclinometry Model...")
-    sleep(1) # Simulate processing time
-
-    # --- SIMPLIFIED GRADIENT DERIVATION ---
-    # The actual model is highly complex and involves iteration. 
-    # Here, we simulate the output (the slope) based on normalized intensity contrast.
+    print("II: Implementing Lambertian Photoclinometry Model...")
     
-    # 1. Normalize Intensity to (0, 1) range
-    I_norm = (I - np.min(I)) / (np.max(I) - np.min(I))
+    # 1. Normalize intensity to [0, 1] range
+    I_min, I_max = np.min(I), np.max(I)
+    if I_max > I_min:
+        I_norm = (I - I_min) / (I_max - I_min)
+    else:
+        I_norm = np.ones_like(I) * 0.5  # Avoid division by zero
     
-    # 2. Invert and Scale to represent slope factor (Shadows = high slope)
-    # The terrain detail relies heavily on the quality of the I array
-    slope_factor = np.clip(1.0 - I_norm, 0.0, 1.0) 
-
-    MAX_SLOPE = 0.5 # Maximum assumed slope in radians/pixel (for scaling output)
+    # 2. Apply Lambertian model: I = ρ * cos(i)
+    # Solve for cos(i): cos(i) = I / ρ
+    # Clamp to valid range [0, 1] to avoid numerical issues
+    cos_i = np.clip(I_norm / albedo, 0.0, 1.0)
     
-    # Simulate the gradient arrays (p = dz/dx, q = dz/dy)
-    p = slope_factor * MAX_SLOPE
-    q = slope_factor * MAX_SLOPE * 0.5 # Q is often less pronounced than P for LROC images
-
+    # 3. Derive local incidence angle from cosine
+    # Add small epsilon to avoid arccos(1) = 0 issues
+    cos_i = np.clip(cos_i, 1e-6, 1.0)
+    i_local = np.arccos(cos_i)
+    
+    # 4. Calculate surface gradients
+    # For Lambertian model with sun at azimuth 0° (shadows in x-direction):
+    # p = dz/dx = tan(i_local) * cos(azimuth)
+    # q = dz/dy = tan(i_local) * sin(azimuth)
+    
+    # Assume sun azimuth is 0° (shadows fall in x-direction)
+    sun_azimuth = 0.0
+    p = np.tan(i_local) * np.cos(np.deg2rad(sun_azimuth))
+    q = np.tan(i_local) * np.sin(np.deg2rad(sun_azimuth))
+    
+    # 5. Apply reasonable slope limits to avoid extreme values
+    max_slope = 0.5  # radians (about 30 degrees)
+    p = np.clip(p, -max_slope, max_slope)
+    q = np.clip(q, -max_slope, max_slope)
+    
+    print(f"   Gradient statistics: p range [{np.min(p):.3f}, {np.max(p):.3f}], q range [{np.min(q):.3f}, {np.max(q):.3f}]")
+    print("   Lambertian photoclinometry complete.")
+    
     return p, q
 
 # --- 4. INTEGRATION (Deriving Elevation from Slope) ---
@@ -181,21 +246,110 @@ def run_photoclinometry(I, i_map, e_map):
 def integrate_slopes(p, q):
     """
     Integrates the slope arrays (p, q) to derive the final Elevation Map (Z).
-    Uses a path integration technique (row and column integration).
+    Uses a least-squares integration approach for better accuracy.
     """
     print("III: Integrating Slopes to Elevation (DEM)...")
-    sleep(1)
-
-    # 1. Integrate along X-axis (rows)
-    Z_x = np.cumsum(p, axis=1)
     
-    # 2. Integrate along Y-axis (columns)
-    Z_y = np.cumsum(q, axis=0)
+    # Method 1: Simple path integration (fast but less accurate)
+    Z_x = np.cumsum(p, axis=1)  # Integrate along rows
+    Z_y = np.cumsum(q, axis=0)  # Integrate along columns
     
-    # 3. Combine/Average (Simple Path Integration)
-    Z = (Z_x + Z_y) / 2.0
+    # Method 2: Average of both paths (better than single path)
+    Z_simple = (Z_x + Z_y) / 2.0
+    
+    # Method 3: Least-squares integration (more accurate)
+    # This minimizes the error between gradients and integrated surface
+    try:
+        Z_ls = least_squares_integration(p, q)
+        Z = Z_ls
+        print("   Used least-squares integration method")
+    except:
+        Z = Z_simple
+        print("   Used simple path integration method")
+    
+    # Remove any overall tilt by subtracting the mean
+    Z = Z - np.mean(Z)
     
     print(f"   Final DEM Array Shape: {Z.shape}")
+    print(f"   DEM elevation range: [{np.min(Z):.3f}, {np.max(Z):.3f}]")
+    return Z
+
+
+def least_squares_integration(p, q):
+    """
+    Implements least-squares integration for better slope-to-elevation conversion.
+    This method minimizes the error between the computed gradients and the 
+    actual surface gradients of the integrated elevation.
+    """
+    h, w = p.shape
+    
+    # Create the system of equations: G * z = b
+    # where G is the gradient operator matrix and z is the elevation vector
+    
+    # Number of pixels
+    n_pixels = h * w
+    
+    # Create gradient operator matrices
+    # For p = dz/dx: (z[i,j+1] - z[i,j]) / dx = p[i,j]
+    # For q = dz/dy: (z[i+1,j] - z[i,j]) / dy = q[i,j]
+    
+    # Initialize sparse matrix system
+    from scipy import sparse
+    from scipy.sparse.linalg import spsolve
+    
+    # Create coordinate lists for sparse matrix
+    row_indices = []
+    col_indices = []
+    data = []
+    b = []
+    
+    eq_count = 0
+    
+    # Add equations for p gradients (x-direction)
+    for i in range(h):
+        for j in range(w-1):
+            # Equation: z[i,j+1] - z[i,j] = p[i,j] * dx
+            # (assuming dx = 1 for simplicity)
+            pixel_idx = i * w + j
+            next_pixel_idx = i * w + (j + 1)
+            
+            row_indices.extend([eq_count, eq_count])
+            col_indices.extend([next_pixel_idx, pixel_idx])
+            data.extend([1.0, -1.0])
+            b.append(p[i, j])
+            eq_count += 1
+    
+    # Add equations for q gradients (y-direction)
+    for i in range(h-1):
+        for j in range(w):
+            # Equation: z[i+1,j] - z[i,j] = q[i,j] * dy
+            pixel_idx = i * w + j
+            next_pixel_idx = (i + 1) * w + j
+            
+            row_indices.extend([eq_count, eq_count])
+            col_indices.extend([next_pixel_idx, pixel_idx])
+            data.extend([1.0, -1.0])
+            b.append(q[i, j])
+            eq_count += 1
+    
+    # Add constraint: z[0,0] = 0 (fix the reference point)
+    row_indices.append(eq_count)
+    col_indices.append(0)
+    data.append(1.0)
+    b.append(0.0)
+    eq_count += 1
+    
+    # Create sparse matrix
+    G = sparse.coo_matrix((data, (row_indices, col_indices)), 
+                         shape=(eq_count, n_pixels)).tocsr()
+    b = np.array(b)
+    
+    # Solve the system
+    z_flat = spsolve(G, b)
+    
+    # Reshape to 2D
+    Z = z_flat.reshape(h, w)
+    
     return Z
 
 # --- 5. EXPORT (Finalizing the GeoTIFF Output) ---
