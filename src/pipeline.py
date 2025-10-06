@@ -23,10 +23,14 @@ XML_NAME = "thumb_wac.M1410501593CC_M1410501593CC_pyr.xml"
 TIF_PATH = os.path.join(FULL_DATA_FOLDER, TIF_NAME)
 XML_PATH = os.path.join(FULL_DATA_FOLDER, XML_NAME)
 
-# Define the final output path (in the project root)
-OUTPUT_FILENAME_BASE = os.path.join(os.getcwd(), "DEM_output.tif")
+# Create output directory for organized results
+OUTPUT_DIR = os.path.join(os.getcwd(), 'output')
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# Ensure base data folder exists (output destination)
+# Define the final output path (in the output folder)
+OUTPUT_FILENAME_BASE = os.path.join(OUTPUT_DIR, "DEM_output.tif")
+
+# Ensure base data folder exists (input data destination)
 os.makedirs(DATA_DIR_BASE, exist_ok=True)
 
 
