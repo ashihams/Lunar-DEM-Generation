@@ -83,7 +83,7 @@ def discover_files_robust(start_dir, target_folder):
 def extract_photoclinometry_inputs(tif_path, xml_path):
     """Reads LROC GeoTIFF (I) and extracts geometry angles (i, e) from PDS XML."""
     
-    # 🚨 DEBUGGING: Print the exact absolute paths being checked 🚨
+    # DEBUGGING: Print the exact absolute paths being checked
     print("-" * 50)
     print(f"DEBUG: Checking for TIF file at absolute path:")
     print(os.path.abspath(tif_path))
@@ -168,7 +168,7 @@ def extract_photoclinometry_inputs(tif_path, xml_path):
                     elements = tree.xpath(xpath, namespaces=ns) if 'pds:' in xpath else tree.xpath(xpath)
                     if elements and elements[0].text:
                         i_deg = float(elements[0].text)
-                        print(f"   Found incidence angle: {i_deg:.2f}° (XPath: {xpath})")
+                        print(f"   Found incidence angle: {i_deg:.2f} degrees (XPath: {xpath})")
                         break
                 except:
                     continue
@@ -180,18 +180,18 @@ def extract_photoclinometry_inputs(tif_path, xml_path):
                     elements = tree.xpath(xpath, namespaces=ns) if 'pds:' in xpath else tree.xpath(xpath)
                     if elements and elements[0].text:
                         e_deg = float(elements[0].text)
-                        print(f"   Found emission angle: {e_deg:.2f}° (XPath: {xpath})")
+                        print(f"   Found emission angle: {e_deg:.2f} degrees (XPath: {xpath})")
                         break
                 except:
                     continue
             
             # Use realistic fallback values if not found
             if i_deg is None:
-                i_deg = 30.0  # More realistic than 45°
-                print(f"   WARNING: No incidence angle found, using realistic default: {i_deg}°")
+                i_deg = 30.0  # More realistic than 45 degrees
+                print(f"   WARNING: No incidence angle found, using realistic default: {i_deg} degrees")
             if e_deg is None:
                 e_deg = 5.0   # Near-nadir viewing is common
-                print(f"   WARNING: No emission angle found, using realistic default: {e_deg}°")
+                print(f"   WARNING: No emission angle found, using realistic default: {e_deg} degrees")
             
         print(f"   Final Angles (Degrees): Incidence={i_deg:.2f}, Emission={e_deg:.2f}")
 
@@ -357,11 +357,11 @@ def _lambertian_photoclinometry(I, i_map, e_map, albedo=0.1):
     i_local = np.arccos(cos_i)
     
     # 4. Calculate surface gradients
-    # For Lambertian model with sun at azimuth 0° (shadows in x-direction):
+    # For Lambertian model with sun at azimuth 0 degrees (shadows in x-direction):
     # p = dz/dx = tan(i_local) * cos(azimuth)
     # q = dz/dy = tan(i_local) * sin(azimuth)
     
-    # Assume sun azimuth is 0° (shadows fall in x-direction)
+    # Assume sun azimuth is 0 degrees (shadows fall in x-direction)
     sun_azimuth = 0.0
     p = np.tan(i_local) * np.cos(np.deg2rad(sun_azimuth))
     q = np.tan(i_local) * np.sin(np.deg2rad(sun_azimuth))
@@ -519,7 +519,7 @@ def handle_shadows(I, p, q, shadow_threshold=0.1, smoothing_sigma=1.0):
                 # Apply smoothing to shadow boundaries
                 p_processed = gaussian_filter(p_processed, sigma=smoothing_sigma)
                 q_processed = gaussian_filter(q_processed, sigma=smoothing_sigma)
-                print(f"   Applied shadow boundary smoothing (σ={smoothing_sigma})")
+                print(f"   Applied shadow boundary smoothing (sigma={smoothing_sigma})")
             
         except ImportError:
             print("   Shadow boundary smoothing not available (scipy not installed)")
@@ -605,7 +605,7 @@ def integrate_slopes(p, q):
         from scipy.ndimage import gaussian_filter
         # Use stronger smoothing to eliminate horizontal stripes
         Z = gaussian_filter(Z, sigma=1.0) 
-        print("   Applied advanced Gaussian smoothing (σ=1.0) to eliminate artifacts")
+        print("   Applied advanced Gaussian smoothing (sigma=1.0) to eliminate artifacts")
     except ImportError:
         print("   Advanced smoothing not available, using weighted averaging")
     
@@ -619,7 +619,7 @@ def integrate_slopes(p, q):
     
     print(f"   Robust integration complete. Final DEM Array Shape: {Z.shape}")
     print(f"   DEM elevation range: [{np.min(Z):.3f}, {np.max(Z):.3f}]")
-    print("   ✅ Horizontal stripe artifacts eliminated")
+    print("   [OK] Horizontal stripe artifacts eliminated")
     return Z
 
 
@@ -879,11 +879,11 @@ def validate_dem_quality(dem_array, model_type="unknown"):
     # Quality metrics
     # 1. Check for reasonable lunar terrain values
     if dem_range < 0.1:
-        print("   ⚠️  WARNING: Very low relief detected - may indicate insufficient contrast")
+        print("   [WARNING] Very low relief detected - may indicate insufficient contrast")
     elif dem_range > 1000:
-        print("   ⚠️  WARNING: Very high relief detected - may indicate artifacts")
+        print("   [WARNING] Very high relief detected - may indicate artifacts")
     else:
-        print("   ✅ Relief range appears reasonable for lunar terrain")
+        print("   [OK] Relief range appears reasonable for lunar terrain")
     
     # 2. Check for smoothness (low noise)
     # Calculate local gradients to assess smoothness
@@ -894,11 +894,11 @@ def validate_dem_quality(dem_array, model_type="unknown"):
     
     print(f"   Surface smoothness: Average gradient = {avg_gradient:.4f}")
     if avg_gradient < 0.1:
-        print("   ✅ Surface appears smooth (low noise)")
+        print("   [OK] Surface appears smooth (low noise)")
     elif avg_gradient > 1.0:
-        print("   ⚠️  WARNING: High surface roughness detected - may indicate artifacts")
+        print("   [WARNING] High surface roughness detected - may indicate artifacts")
     else:
-        print("   ✅ Surface roughness appears reasonable")
+        print("   [OK] Surface roughness appears reasonable")
     
     # 3. Check for horizontal artifacts (stripe detection)
     # Calculate row-wise variance to detect horizontal stripes
@@ -907,15 +907,15 @@ def validate_dem_quality(dem_array, model_type="unknown"):
     
     print(f"   Horizontal artifact detection: Row variance std = {row_variance_std:.6f}")
     if row_variance_std < 0.01:
-        print("   ✅ No horizontal stripe artifacts detected")
+        print("   [OK] No horizontal stripe artifacts detected")
     else:
-        print("   ⚠️  WARNING: Potential horizontal artifacts detected")
+        print("   [WARNING] Potential horizontal artifacts detected")
     
     # 4. Model-specific validation
     if model_type.lower() == "hapke":
-        print("   ✅ Hapke model: Advanced bidirectional reflectance model applied")
+        print("   [OK] Hapke model: Advanced bidirectional reflectance model applied")
     elif model_type.lower() == "lambertian":
-        print("   ⚠️  Lambertian model: Basic model - consider upgrading to Hapke for lunar surfaces")
+        print("   [WARNING] Lambertian model: Basic model - consider upgrading to Hapke for lunar surfaces")
     
     # 5. Scientific assessment
     print(f"   Scientific Assessment:")
@@ -937,13 +937,13 @@ def validate_dem_quality(dem_array, model_type="unknown"):
     print(f"   Overall Quality Score: {quality_score}/100")
     
     if quality_score >= 90:
-        print("   🏆 EXCELLENT: High-quality DEM suitable for scientific analysis")
+        print("   [EXCELLENT] High-quality DEM suitable for scientific analysis")
     elif quality_score >= 75:
-        print("   ✅ GOOD: Quality DEM with minor issues")
+        print("   [GOOD] Quality DEM with minor issues")
     elif quality_score >= 60:
-        print("   ⚠️  FAIR: DEM has some quality issues - consider reprocessing")
+        print("   [FAIR] DEM has some quality issues - consider reprocessing")
     else:
-        print("   ❌ POOR: DEM has significant quality issues - requires improvement")
+        print("   [POOR] DEM has significant quality issues - requires improvement")
     
     print("   DEM validation complete.")
     return quality_score
@@ -982,7 +982,7 @@ def export_dem(dem_array, tif_path, output_filename):
     with rasterio.open(output_filename, 'w', **profile) as dst:
         dst.write(dem_array.astype(rasterio.float32), 1)
         
-    print(f"✅ PIPELINE SUCCESS: DEM exported to {output_filename}")
+    print(f"[SUCCESS] PIPELINE SUCCESS: DEM exported to {output_filename}")
 
 
 # ====================================================================
