@@ -318,7 +318,7 @@ def _hapke_photoclinometry(I, i_map, e_map, w=0.12, h=0.1, B0=0.1, h0=0.05, thet
     p = np.clip(p, -max_slope, max_slope)
     q = np.clip(q, -max_slope, max_slope)
     
-    print(f"   Advanced Hapke model parameters: w={w:.3f}, h={h:.3f}, B0={B0:.3f}, θ={theta:.3f}")
+    print(f"   Advanced Hapke model parameters: w={w:.3f}, h={h:.3f}, B0={B0:.3f}, theta={theta:.3f}")
     print(f"   Gradient statistics: p range [{np.min(p):.3f}, {np.max(p):.3f}], q range [{np.min(q):.3f}, {np.max(q):.3f}]")
     print("   Advanced Hapke photoclinometry complete.")
     
@@ -1010,8 +1010,8 @@ def run_photoclinometry_pipeline():
         # 2.5. Shadow Handling - Handle deep shadows before modeling
         intensity_shadow_corrected = handle_shadows_intensity(intensity)
             
-        # 3. Modeling (Gradient Derivation) - Using Lommel-Seeliger model for lunar accuracy
-        p, q = run_photoclinometry(intensity_shadow_corrected, incidence, emission, model_type="lommel_seeliger")
+        # 3. Modeling (Gradient Derivation) - Using Hapke model for advanced lunar accuracy
+        p, q = run_photoclinometry(intensity_shadow_corrected, incidence, emission, model_type="hapke")
         
         # 3.5. Shadow Handling (Advanced Shadow Processing)
         p, q = handle_shadows(intensity, p, q)
@@ -1020,7 +1020,7 @@ def run_photoclinometry_pipeline():
         final_dem = integrate_slopes(p, q)
         
         # 4.5. Validation (DEM Quality Assessment)
-        quality_score = validate_dem_quality(final_dem, model_type="lommel_seeliger")
+        quality_score = validate_dem_quality(final_dem, model_type="hapke")
         
         # 5. Export Result (Final Output)
         export_dem(final_dem, TIF_PATH, OUTPUT_FILENAME_BASE)
