@@ -1,0 +1,32 @@
+#!/bin/bash
+set -euo pipefail
+
+REGION="${region}"
+INPUT_BUCKET="${s3_input_bucket}"
+OUTPUT_BUCKET="${s3_output_bucket}"
+PIPELINE_IMAGE="${docker_image}"
+
+echo "[user-data] Updating system and installing Docker"
+dnf -y update
+dnf -y install docker
+systemctl enable --now docker
+
+echo "[user-data] Logging into AWS (instance profile recommended)"
+export AWS_DEFAULT_REGION="$REGION"
+
+echo "[user-data] Pulling pipeline image: $PIPELINE_IMAGE"
+docker pull "$PIPELINE_IMAGE" || true
+
+mkdir -p /opt/dem/data /opt/dem/logs /opt/dem/models
+
+echo "[user-data] Running pipeline container once (adjust command as needed)"
+docker run --rm \
+  -e AWS_DEFAULT_REGION="$REGION" \
+  -v /opt/dem/data:/app/data \
+  -v /opt/dem/logs:/app/logs \
+  -v /opt/dem/models:/app/models \
+  "$PIPELINE_IMAGE" python main.py || true
+
+echo "[user-data] Setup complete"
+
+
